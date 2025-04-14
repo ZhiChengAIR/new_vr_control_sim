@@ -11,8 +11,17 @@ set(Boost_PYTHON_VERSION 3.10)
 find_package(Boost 1.74 REQUIRED COMPONENTS python310)
 find_package(rclcpp REQUIRED)
 find_package(pinocchio REQUIRED)
+find_package(message_filters REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(HDF5 REQUIRED)
 
-include_directories(${EIGEN3_INCLUDE_DIRS})
+include_directories(
+  ${OpenCV_INCLUDE_DIRS}
+  ${HDF5_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+)
+
 
 # 添加你的可执行文件或库
 add_executable(my_node src/test_node.cpp)
@@ -22,8 +31,15 @@ ament_target_dependencies(
    rclcpp sensor_msgs 
    nav_msgs 
   geometry_msgs
+  message_filters
+  cv_bridge
   pinocchio
   )
+
+target_link_libraries(my_node
+  ${OpenCV_LIBS}
+  ${HDF5_LIBRARIES}
+)
 
 install(TARGETS my_node
   DESTINATION lib/${PROJECT_NAME}
