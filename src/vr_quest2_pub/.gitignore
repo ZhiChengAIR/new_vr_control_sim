@@ -1,0 +1,4 @@
+*test/
+/resource
+.vscode
+*__pycache__/

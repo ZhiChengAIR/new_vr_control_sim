@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>vr_quest2_pub</name>
+  <version>0.0.1</version>
+  <description>A ROS2 publisher for VR_quest2, publishing to pos_cmd topic.</description>
+  <maintainer email="liuhuxian@gmail.com">h666</maintainer>
+  <license>MIT</license>
+
+  <!-- 构建工具 -->
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- 运行时依赖 -->
+  <build_depend>rclpy</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <!-- <build_depend>pure-python-adb</build_depend> -->
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <!-- <exec_depend>pure-python-adb</exec_depend> -->
+
+  <!-- 测试依赖 -->
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+    <!-- <build_depend>ament_cmake</build_depend> -->
+  </export>
+</package>

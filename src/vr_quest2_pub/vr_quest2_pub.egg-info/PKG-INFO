@@ -1,0 +1,16 @@
+Metadata-Version: 2.2
+Name: vr_quest2_pub
+Version: 0.0.1
+Summary: A ROS2 publisher for VR_quest2, publishing to pos_cmd topic.
+Maintainer: h666
+Maintainer-email: liuhuxian@gmail.com
+License: MIT
+Requires-Dist: setuptools
+Provides-Extra: test
+Requires-Dist: pytest; extra == "test"
+Dynamic: license
+Dynamic: maintainer
+Dynamic: maintainer-email
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: summary

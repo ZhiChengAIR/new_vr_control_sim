@@ -1,0 +1,3 @@
+[submodule "vr_quest2_pub/src/encapsulated_oculusReader"]
+	path = vr_quest2_pub/src/encapsulated_oculusReader
+	url = https://github.com/ZhiChengAIR/encapsulated_oculusReader.git

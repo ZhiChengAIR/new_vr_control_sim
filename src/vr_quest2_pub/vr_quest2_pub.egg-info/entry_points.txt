@@ -1,0 +1,2 @@
+[console_scripts]
+vr_pub = vr_quest2_pub.publisher_node:main
