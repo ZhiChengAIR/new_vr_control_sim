@@ -14,9 +14,10 @@ find_package(pinocchio REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
-find_package(HDF5 REQUIRED)
+find_package(HDF5 REQUIRED COMPONENTS C CXX HL)
 
 include_directories(
+  include
   ${OpenCV_INCLUDE_DIRS}
   ${HDF5_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
@@ -39,6 +40,9 @@ ament_target_dependencies(
 target_link_libraries(my_node
   ${OpenCV_LIBS}
   ${HDF5_LIBRARIES}
+  ${HDF5_C_LIBRARIES}
+  ${HDF5_CXX_LIBRARIES}
+  curl
 )
 
 install(TARGETS my_node

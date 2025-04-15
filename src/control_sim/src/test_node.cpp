@@ -15,12 +15,15 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
 #include <H5Cpp.h>
+#include <chrono>
 #include <vector>
 #include <string>
 #include <cmath>
@@ -28,6 +31,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
+
+using namespace message_filters;
 
 class ArmController : public rclcpp::Node {
     public:
@@ -44,8 +49,21 @@ class ArmController : public rclcpp::Node {
           rclcpp::shutdown();
         }
     
+        current_q_new_.resize(model.nq);
+        current_q_new_.setZero();
         current_q_.resize(model.nq);
         current_q_.setZero();
+
+        image_sub_.subscribe(this, "rgb2");
+        action_sub_.subscribe(this, "actual_joint_states");
+
+        sync_.reset(new Synchronizer<SyncPolicy>(SyncPolicy(10), image_sub_, action_sub_));
+        sync_->registerCallback(std::bind(&ArmController::image_action_callback, this, std::placeholders::_1, std::placeholders::_2));
+
+        h5file_ = new H5::H5File("/home/zjy/rgb_action_dataset.hdf5", H5F_ACC_TRUNC);
+        img_group_ = h5file_->createGroup("/images");
+        act_group_ = h5file_->createGroup("/actions");
+        ts_group_ = h5file_->createGroup("/timestamps");
     
         cur_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
           "current_pose", 10);
@@ -102,7 +120,7 @@ class ArmController : public rclcpp::Node {
       void actual_joint_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
         // std::cout << "ininininiinj actual " << msg->name.size() << " " << msg->position.size() << std::endl;
         // std::lock_guard<std::mutex> lock(q_mutex_);
-        
+        // std::cout << "in actual_joint_callback" << std::endl;
         if (msg->name.size() != msg->position.size()) {
           RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                              "无效关节状态消息: 名称与位置数量不匹配");
@@ -195,6 +213,94 @@ class ArmController : public rclcpp::Node {
       //   RCLCPP_INFO(this->get_logger(), "已发布目标位姿 Z: %.3f", 
       //               target_pose.translation().z());
       // }
+
+      void image_action_callback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg,
+        const sensor_msgs::msg::JointState::ConstSharedPtr act_msg) {
+        std::cout << "in image_action_callback" << std::endl;
+        try {
+          // Convert image
+          std::cout << "Convert image" << std::endl;
+          cv::Mat img = cv_bridge::toCvCopy(img_msg, "bgr8")->image;
+
+          hsize_t dims[3] = { static_cast<hsize_t>(img.rows),
+                            static_cast<hsize_t>(img.cols),
+                            static_cast<hsize_t>(img.channels()) };
+          H5::DataSpace dataspace(3, dims);
+          H5::DataSet dataset = img_group_.createDataSet(std::to_string(frame_count_), H5::PredType::STD_U8BE, dataspace);
+          dataset.write(img.data, H5::PredType::NATIVE_UINT8);
+
+          // Save timestamp
+          double ts = img_msg->header.stamp.sec + img_msg->header.stamp.nanosec * 1e-9;
+          hsize_t ts_dims[1] = {1};
+          H5::DataSpace ts_space(1, ts_dims);
+          H5::DataSet ts_dataset = ts_group_.createDataSet(std::to_string(frame_count_), H5::PredType::IEEE_F64LE, ts_space);
+          ts_dataset.write(&ts, H5::PredType::NATIVE_DOUBLE);
+
+          if (act_msg->name.size() != act_msg->position.size()) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                               "无效关节状态消息: 名称与位置数量不匹配");
+            return;
+          }
+      
+          for (size_t i = 0; i < act_msg->name.size(); ++i) {
+            const std::string& joint_name = act_msg->name[i];
+            // std::cout << "ininininiinj actual 1111" << std::endl;
+            try {
+              const auto joint_id = model.getJointId(joint_name);
+              const auto& joint = model.joints[joint_id];
+              // std::cout << "ininininiinj actual 2222" << current_q_.size() << std::endl;
+              if (current_q_new_.size() == act_msg->position.size()) {
+                current_q_new_[i] = act_msg->position[i];
+                  // std::cout << "ininiin sideeee " << current_q_[i] << std::endl;
+              }
+  
+              // if (joint.idx_q() >= 0 && joint.nq() == 1) {
+              //   const size_t idx = static_cast<size_t>(joint.idx_q());
+              //   std::cout << "ininininiinj actual 33333 " << joint.idx_q() << " " << current_q_.size() << std::endl;
+              //   if (idx < current_q_.size()) {
+              //     current_q_[idx] = msg->position[i];
+              //     std::cout << "ininiin " << current_q_[idx] << std::endl;
+              //   }
+              // }
+            } catch (const std::invalid_argument& e) {
+              RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                  "忽略未知关节: %s", joint_name.c_str());
+            }
+          }
+          pinocchio::forwardKinematics(model, data, current_q_new_);
+          pinocchio::updateFramePlacement(model, data, ee_frame_id_);
+          current_pose_new_ = data.oMf[ee_frame_id_];
+  
+          auto msg_pose_stamp = geometry_msgs::msg::PoseStamped();
+          msg_pose_stamp.header.stamp = this->now();
+          msg_pose_stamp.header.frame_id = "base_link"; 
+  
+          msg_pose_stamp.pose.position.x = current_pose_new_.translation().x();
+          msg_pose_stamp.pose.position.y = current_pose_new_.translation().y();
+          msg_pose_stamp.pose.position.z = current_pose_new_.translation().z();
+  
+          Eigen::Quaterniond quat(current_pose_new_.rotation());
+          msg_pose_stamp.pose.orientation.x = quat.x();
+          msg_pose_stamp.pose.orientation.y = quat.y();
+          msg_pose_stamp.pose.orientation.z = quat.z();
+          msg_pose_stamp.pose.orientation.w = quat.w();
+          // Save action (vx, vy, vz, wx, wy, wz)
+          float action[7] = {
+            msg_pose_stamp.pose.position.x, msg_pose_stamp.pose.position.y, msg_pose_stamp.pose.position.z,
+            msg_pose_stamp.pose.orientation.x, msg_pose_stamp.pose.orientation.y, msg_pose_stamp.pose.orientation.z, msg_pose_stamp.pose.orientation.w
+          };
+          hsize_t act_dims[1] = {7};
+          H5::DataSpace act_space(1, act_dims);
+          H5::DataSet act_dataset = act_group_.createDataSet(std::to_string(frame_count_), H5::PredType::IEEE_F32LE, act_space);
+          act_dataset.write(action, H5::PredType::NATIVE_FLOAT);
+
+          RCLCPP_INFO(this->get_logger(), "Frame %ld recorded.", frame_count_);
+          frame_count_++;
+
+        } catch (const std::exception &e) {
+          RCLCPP_ERROR(this->get_logger(), "Error: %s", e.what());
+        }
+      }
     
       void gripper_callback(const geometry_msgs::msg::Pose::SharedPtr msg) {
         gripper_7_ = msg->position.x;
@@ -323,27 +429,27 @@ class ArmController : public rclcpp::Node {
       }
     
 
-  void publish_joint_commands(const Eigen::VectorXd& q) {
-    auto msg = sensor_msgs::msg::JointState();
-    msg.header.stamp = this->now();
-    msg.header.frame_id = "command";
+      void publish_joint_commands(const Eigen::VectorXd& q) {
+        auto msg = sensor_msgs::msg::JointState();
+        msg.header.stamp = this->now();
+        msg.header.frame_id = "command";
 
-    for (const auto& joint_name : model.names) {
-      if (model.getJointId(joint_name) > 0) {
-        msg.name.push_back(joint_name);
-        const auto idx = model.joints[model.getJointId(joint_name)].idx_q();
-        std::cout << "idx out " << idx << std::endl;
-        msg.position.push_back(q[idx]);
+        for (const auto& joint_name : model.names) {
+          if (model.getJointId(joint_name) > 0) {
+            msg.name.push_back(joint_name);
+            const auto idx = model.joints[model.getJointId(joint_name)].idx_q();
+            std::cout << "idx out " << idx << std::endl;
+            msg.position.push_back(q[idx]);
+          }
+        }
+        for (int i = 0 ; i < 6; i++) {
+          msg.effort.push_back(0.0);
+        }
+        msg.effort.push_back(10000.0);
+        msg.effort.push_back(10000.0);
+
+        joint_pub_->publish(msg);
       }
-    }
-    for (int i = 0 ; i < 6; i++) {
-      msg.effort.push_back(0.0);
-    }
-    msg.effort.push_back(10000.0);
-    msg.effort.push_back(10000.0);
-
-    joint_pub_->publish(msg);
-  }
     
 
       void timer_callback() {
@@ -366,10 +472,19 @@ class ArmController : public rclcpp::Node {
       pinocchio::Data data;
       pinocchio::FrameIndex ee_frame_id_;
       Eigen::VectorXd current_q_;
+      Eigen::VectorXd current_q_new_;
       Eigen::VectorXd temp_cal_q_;
       Eigen::VectorXd target_q_;
       pinocchio::SE3 target_pose_;
     
+      typedef sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::JointState> SyncPolicy;
+      message_filters::Subscriber<sensor_msgs::msg::Image> image_sub_;
+      message_filters::Subscriber<sensor_msgs::msg::JointState> action_sub_;
+      std::shared_ptr<Synchronizer<SyncPolicy>> sync_;
+
+      H5::H5File *h5file_;
+      H5::Group img_group_, act_group_, ts_group_;
+      int64_t frame_count_;
 
       rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
       rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr gripper_sub_;
@@ -379,6 +494,7 @@ class ArmController : public rclcpp::Node {
       rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr target_pose_pub_;
       rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr cur_pose_pub_;
       pinocchio::SE3 current_pose_;
+      pinocchio::SE3 current_pose_new_;
       double gripper_7_;
       double gripper_8_;
       std::mutex q_mutex_;
