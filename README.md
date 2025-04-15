@@ -68,12 +68,13 @@ which colcon # expected output: /home/zcai/miniforge3/envs/tr3/bin/colcon
     sudo apt install -y libpinocchio-dev
 
 # 3.操作步骤
-## 1. 启动vr node
-    ros2 run vr_quest2_pub vr_pub
-## 2. 启动控制节点
+## 1. 启动控制节点
     ros2 run my_pinocchio_robot my_node   --ros-args -p urdf_path:=/home/zjy/my_pinocchio_robot/src/piper_ros/src/piper_description/urdf/piper_description.urdf -p ee_frame:=link6 -p ik_tolerance:=0.001 -p ik_max_iter:=100
     其中urdf_path是需要控制的机械臂urdf路径，ee_frame是机械臂urdf中真实末端link名称，ik_tolerance控制逆解精度，ik_max_iter控制逆解最大迭代步数
+## 2. 启动isaac sim并打开需要采集数据的场景usd文件
+## 3. 启动vr node
+    ros2 run vr_quest2_pub vr_pub
 
 # 4. 注意事项
 ## 1. 使用python和ros的时候可能需要手动添加python的site package路径，因为ros路径可能覆盖conda路径
-    export PYTHONPATH="/home/zjy/anaconda3/envs/tr3/lib/python3.10/site-packages:$PYTHONPATH"
+    export PYTHONPATH="/home/zjy/anaconda3/envs/tr3/lib/python3.10/site-packages:$PYTHONPATH" (修改为真实conda环境路径)
